@@ -1,0 +1,181 @@
+import heapq
+import time
+import copy
+import math
+
+INF = float('inf')
+
+def reduce_matrix(mat):
+    """Trả về ma trận đã rút gọn và chi phí rút gọn"""
+    n = len(mat)
+    mat = [row[:] for row in mat]
+    red_cost = 0.0
+
+    # Rút gọn theo hàng
+    for i in range(n):
+        row_min = INF
+        for j in range(n):
+            if mat[i][j] < row_min:
+                row_min = mat[i][j]
+        if row_min != INF and row_min > 0:
+            for j in range(n):
+                if mat[i][j] != INF:
+                    mat[i][j] -= row_min
+            red_cost += row_min
+
+    # Rút gọn theo cột
+    for j in range(n):
+        col_min = INF
+        for i in range(n):
+            if mat[i][j] < col_min:
+                col_min = mat[i][j]
+        if col_min != INF and col_min > 0:
+            for i in range(n):
+                if mat[i][j] != INF:
+                    mat[i][j] -= col_min
+            red_cost += col_min
+
+    return mat, red_cost
+
+def copy_matrix(mat):
+    return [row[:] for row in mat]
+
+class Node:
+    def __init__(self, mat, path, lb, level, current):
+        self.mat = mat
+        self.path = path   # đường đi hiện tại (danh sách các đỉnh đã đi qua)
+        self.lb = lb       # cận dưới
+        self.level = level # số cạnh đã chọn
+        self.current = current  # đỉnh hiện tại (đang đứng ở đâu)
+
+    def __lt__(self, other):
+        return self.lb < other.lb
+
+def find_best_edge_penalty(mat):
+    """Tìm (i,j) có chi phí hữu hạn với hình phạt (penalty) lớn nhất
+       penalty = min(hàng i trừ j) + min(cột j trừ i)"""
+    n = len(mat)
+    best_i = best_j = -1
+    best_pen = -1
+    for i in range(n):
+        for j in range(n):
+            if mat[i][j] != INF:
+                # tìm min ở hàng i (trừ cột j)
+                row_min = INF
+                for jj in range(n):
+                    if jj != j and mat[i][jj] < row_min:
+                        row_min = mat[i][jj]
+                # tìm min ở cột j (trừ hàng i)
+                col_min = INF
+                for ii in range(n):
+                    if ii != i and mat[ii][j] < col_min:
+                        col_min = mat[ii][j]
+                if row_min == INF: row_min = 0
+                if col_min == INF: col_min = 0
+                pen = row_min + col_min
+                if pen > best_pen:
+                    best_pen = pen
+                    best_i, best_j = i, j
+    return best_i, best_j
+
+def tsp_branch_and_bound(cost_matrix):
+    n = len(cost_matrix)
+    # đặt đường chéo = ∞
+    mat0 = copy_matrix(cost_matrix)
+    for i in range(n):
+        mat0[i][i] = INF
+
+    # rút gọn ban đầu
+    mat0, rcost = reduce_matrix(mat0)
+    root = Node(mat0, [0], rcost, 0, 0)  # bắt đầu từ đỉnh 0
+    best_cost = INF
+    best_tour = None
+    nodes_expanded = 0
+
+    heap = []
+    heapq.heappush(heap, (root.lb, 0, root))
+    counter = 1
+
+    start_time = time.time()
+
+    while heap:
+        lb, _, node = heapq.heappop(heap)
+        # cắt nhánh nếu lb ≥ best_cost
+        if lb >= best_cost:
+            continue
+        nodes_expanded += 1
+
+        # Nếu đã đi qua n-1 cạnh thì khép vòng
+        if node.level == n - 1:
+            last = node.current
+            if cost_matrix[last][0] != INF:
+                tour_cost = node.lb + cost_matrix[last][0]
+                full_path = node.path + [0]
+                if tour_cost < best_cost:
+                    best_cost = tour_cost
+                    best_tour = full_path
+            continue
+
+        # Chọn cạnh để phân nhánh (theo penalty)
+        i, j = find_best_edge_penalty(node.mat)
+        if i == -1:
+            continue
+
+        # Nhánh 1: INCLUDE (chọn i→j)
+        mat_inc = copy_matrix(node.mat)
+        inc_cost = node.lb + mat_inc[i][j]
+
+        # cấm hàng i
+        for col in range(n):
+            mat_inc[i][col] = INF
+        # cấm cột j
+        for row in range(n):
+            mat_inc[row][j] = INF
+        # cấm ngược lại (j→i)
+        mat_inc[j][i] = INF
+
+        # rút gọn lại
+        mat_inc, red_inc = reduce_matrix(mat_inc)
+        new_lb_inc = inc_cost + red_inc
+
+        if new_lb_inc < best_cost and i == node.current:
+            child_path = node.path + [j]
+            child = Node(mat_inc, child_path, new_lb_inc, node.level + 1, j)
+            heapq.heappush(heap, (child.lb, counter, child))
+            counter += 1
+
+        # Nhánh 2: EXCLUDE (loại i→j)
+        mat_exc = copy_matrix(node.mat)
+        mat_exc[i][j] = INF
+        mat_exc, red_exc = reduce_matrix(mat_exc)
+        new_lb_exc = node.lb + red_exc
+
+        if new_lb_exc < best_cost:
+            child = Node(mat_exc, node.path[:], new_lb_exc, node.level, node.current)
+            heapq.heappush(heap, (child.lb, counter, child))
+            counter += 1
+
+    elapsed = time.time() - start_time
+    return {
+        'best_cost': best_cost,
+        'best_tour': best_tour,
+        'nodes_expanded': nodes_expanded,
+        'time_s': elapsed
+    }
+
+
+# ----------- Ví dụ chạy -----------
+if __name__ == "__main__":
+    # Ma trận chi phí 4 thành phố (0..3)
+    C = [
+        [INF, 20, 30, 10],
+        [15, INF, 16, 4],
+        [3, 5, INF, 2],
+        [19, 6, 18, INF]
+    ]
+
+    res = tsp_branch_and_bound(C)
+    print("Chi phí nhỏ nhất:", res['best_cost'])
+    print("Chu trình tối ưu:", res['best_tour'])
+    print("Số nút đã mở rộng:", res['nodes_expanded'])
+    print("Thời gian chạy (giây):", res['time_s'])

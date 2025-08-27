@@ -1,0 +1,99 @@
+import heapq
+import time
+
+# -----------------------------
+# Tính bound (cận trên) bằng knapsack phân số
+# -----------------------------
+def bound(level, value, weight, W, items):
+    if weight >= W:
+        return 0
+
+    upper_bound = value
+    total_weight = weight
+    n = len(items)
+
+    # Xét tiếp các món còn lại từ level -> n
+    for i in range(level, n):
+        w, v, ratio, index = items[i]
+        if total_weight + w <= W:
+            total_weight += w
+            upper_bound += v
+        else:
+            remain = W - total_weight
+            upper_bound += v * (remain / w)
+            break
+
+    return upper_bound
+
+# -----------------------------
+# Thuật toán Branch & Bound cho 0/1 Knapsack
+# -----------------------------
+def knapsack(W, weights, values):
+    start = time.time()
+    n = len(weights)
+
+    # Sắp xếp theo mật độ v/w giảm dần
+    items = []
+    for i in range(n):
+        items.append((weights[i], values[i], values[i]/weights[i], i))
+    items.sort(key=lambda x: x[2], reverse=True)
+
+    # best-first search bằng heap
+    max_value = 0
+    best_chosen = []
+    nodes_expanded = 0
+
+    # Node: (-bound, value, weight, level, chosen)
+    heap = []
+    init_bound = bound(0, 0, 0, W, items)
+    heapq.heappush(heap, (-init_bound, 0, 0, 0, []))
+
+    while heap:
+        nodes_expanded += 1
+        neg_bound, value, weight, level, chosen = heapq.heappop(heap)
+
+        if level >= n:
+            continue
+
+        # Nhánh 1: lấy món level
+        w, v, ratio, idx = items[level]
+        if weight + w <= W:
+            new_value = value + v
+            new_weight = weight + w
+            new_chosen = chosen + [idx]
+
+            if new_value > max_value:
+                max_value = new_value
+                best_chosen = new_chosen
+
+            new_bound = bound(level+1, new_value, new_weight, W, items)
+            if new_bound > max_value:
+                heapq.heappush(heap, (-new_bound, new_value, new_weight, level+1, new_chosen))
+
+        # Nhánh 2: bỏ món level
+        new_bound = bound(level+1, value, weight, W, items)
+        if new_bound > max_value:
+            heapq.heappush(heap, (-new_bound, value, weight, level+1, chosen))
+
+    end = time.time()
+
+    # Chuyển về vector nghiệm theo thứ tự ban đầu
+    chosen_vector = [0]*n
+    for idx in best_chosen:
+        chosen_vector[idx] = 1
+
+    return max_value, chosen_vector, nodes_expanded, end-start
+
+# -----------------------------
+# Ví dụ chạy
+# -----------------------------
+W = 10
+weights = [8, 4, 6, 2, 3]  # A, B, C, D, E
+values = [50, 20, 100, 85, 40]
+
+best_value, chosen_items, nodes_expanded, runtime = knapsack(W, weights, values)
+
+print("Best value:", best_value)
+print("Chosen items (A,B,C,D,E):", chosen_items)
+print("Nodes expanded:", nodes_expanded)
+print("Runtime (s):", runtime)
